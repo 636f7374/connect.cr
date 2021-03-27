@@ -4,8 +4,10 @@ version: 1.0.0
 dependencies:
   dns:
     github: 636f7374/dns.cr
+    version: ~> 1.0.0
   interface_address:
     github: 64726f70/interface_address
+    version: ~> 1.0.0
 
 authors:
   - 636f7374
