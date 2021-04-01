@@ -48,17 +48,20 @@ class CONNECT::Server
     @outboundTimeOut ||= TimeOut.new
   end
 
-  def establish!(session : Session, sync_create_outbound_socket : Bool = true) : Bool
+  def establish!(session : Session, start_immediately : Bool = true, sync_create_outbound_socket : Bool = true) : HTTP::Request
     # Check whether HTTP::Request can be obtained, and check it's Headers `Proxy-Authorization`.
 
-    http_request = HTTP::Request.from_io io: session, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
-    raise Exception.new String.build { |io| io << "Server.establish!: HTTP::Request.from_io type is not HTTP::Request (" << http_request.class << ")." } unless http_request.is_a? HTTP::Request
-    session.destination_frame = Frames::Destination.new request: http_request
+    request = HTTP::Request.from_io io: session, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
+    raise Exception.new String.build { |io| io << "Server.establish!: HTTP::Request.from_io type is not HTTP::Request (" << request.class << ")." } unless request.is_a? HTTP::Request
+
+    # Put Frames::Destination into Session.
+
+    session.destination_frame = Frames::Destination.new request: request
 
     # Check (proxy_authorization, client_validity).
 
-    check_proxy_authorization! session: session, http_request: http_request
-    check_client_validity! session: session, http_request: http_request
+    check_proxy_authorization! session: session, request: request
+    check_client_validity! session: session, request: request
 
     # Put HTTP::Request and local_address, remote_address into Session.
 
@@ -66,46 +69,55 @@ class CONNECT::Server
     session.local_address = session_inbound.responds_to?(:local_address) ? (session_inbound.local_address rescue nil) : nil
     session.remote_address = session_inbound.responds_to?(:remote_address) ? (session_inbound.remote_address rescue nil) : nil
 
+    # Put tunnelMode into Frames::Destination.
+
+    session.destination_frame.try do |destination_frame|
+      destination_frame.tunnelMode = ("CONNECT" == request.method) ? true : false
+      session.destination_frame = destination_frame
+    end
+
+    return request unless start_immediately
+    establish! session: session, request: request, sync_create_outbound_socket: sync_create_outbound_socket
+
+    request
+  end
+
+  def establish!(session : Session, request : HTTP::Request, sync_create_outbound_socket : Bool = true) : Bool
     # If syncCreateOutboundSocket is true, then create Outbound socket.
 
-    session.outbound = create_outbound_socket!(session: session, http_request: http_request) if sync_create_outbound_socket
+    session.outbound = create_outbound_socket!(session: session, request: request) if sync_create_outbound_socket
     destination_frame = session.destination_frame
 
     # If HTTP::Request.method is `CONNECT`, then check whether the established HTTP::Request is HTTPS.
     # ** Because MITM servers need accurate results. **
     # If it is not `CONNECT`, then merge the first HTTP::Request and Session.inbound into IO::Stapled.
 
-    if "CONNECT" == http_request.method
-      http_client_response = HTTP::Client::Response.new status_code: 200_i32, body: nil, status_message: "Connection established", version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+    if "CONNECT" == request.method
+      response = HTTP::Client::Response.new status_code: 200_i32, body: nil, status_message: "Connection established", version: request.version, body_io: nil
+      response.to_io io: session
 
       uninitialized_buffer = uninitialized UInt8[4096_i32]
       read_length = session.read slice: uninitialized_buffer.to_slice
 
       pre_extract_memory = IO::Memory.new String.new uninitialized_buffer.to_slice[0_i32, read_length]
-      pre_extract_http_request = HTTP::Request.from_io io: pre_extract_memory, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
+      pre_extract_request = HTTP::Request.from_io io: pre_extract_memory, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
       pre_extract_memory.rewind
 
       read_only_extract = Quirks::Extract.new partMemory: pre_extract_memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
 
       if destination_frame
-        destination_frame.tunnelMode = true
-        traffic_type = pre_extract_http_request.is_a?(HTTP::Request) ? TrafficType::HTTP : TrafficType::HTTPS
+        traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficType::HTTP : TrafficType::HTTPS
         destination_frame.trafficType = traffic_type
       end
     else
       memory = IO::Memory.new
-      http_request.to_io io: memory
+      request.to_io io: memory
       memory.rewind
 
       read_only_extract = Quirks::Extract.new partMemory: memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
-
-      if destination_frame
-        destination_frame.tunnelMode = false
-        destination_frame.trafficType = TrafficType::HTTP
-      end
+      destination_frame.try &.trafficType = TrafficType::HTTP
     end
 
     destination_frame.try { |_destination_frame| session.destination_frame = _destination_frame }
@@ -113,13 +125,13 @@ class CONNECT::Server
     true
   end
 
-  private def create_outbound_socket!(session : Session, http_request : HTTP::Request) : TCPSocket
+  private def create_outbound_socket!(session : Session, request : HTTP::Request) : TCPSocket
     begin
       raise Exception.new "Server.establish!: Session.destination_frame is Nil!" unless destination_frame = session.destination_frame
       destination_address = destination_frame.get_destination_address
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
@@ -142,32 +154,32 @@ class CONNECT::Server
         return socket
       end
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 504_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 504_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
   end
 
-  private def check_proxy_authorization!(session : Session, http_request : HTTP::Request)
+  private def check_proxy_authorization!(session : Session, request : HTTP::Request)
     case authentication
     in .no_authentication?
     in .basic?
-      check_basic_proxy_authorization! session: session, http_request: http_request
-      http_request.headers.delete "Proxy-Authorization"
+      check_basic_proxy_authorization! session: session, request: request
+      request.headers.delete "Proxy-Authorization"
     end
   end
 
-  private def check_basic_proxy_authorization!(session : Session, http_request : HTTP::Request) : Bool
+  private def check_basic_proxy_authorization!(session : Session, request : HTTP::Request) : Bool
     begin
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers is empty!" } unless http_request_headers = http_request.headers
-      headers_proxy_authorization = http_request_headers["Proxy-Authorization"]?
+      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers is empty!" } unless request_headers = request.headers
+      headers_proxy_authorization = request_headers["Proxy-Authorization"]?
 
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers lacks [Proxy-Authorization]!" } unless headers_proxy_authorization
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] is empty!" } if headers_proxy_authorization.empty?
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
@@ -186,8 +198,8 @@ class CONNECT::Server
       permission_type = on_auth.try &.call(user_name, password) || Frames::PermissionFlag::Passed
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] onAuth callback returns Denied!" } if permission_type.denied?
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 401_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 401_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
@@ -197,16 +209,16 @@ class CONNECT::Server
     true
   end
 
-  private def check_client_validity!(session : Session, http_request : HTTP::Request)
+  private def check_client_validity!(session : Session, request : HTTP::Request) : Bool
     begin
-      raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers is empty!" } unless http_request_headers = http_request.headers
-      headers_host = http_request_headers["Host"]?
+      raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers is empty!" } unless request_headers = request.headers
+      headers_host = request_headers["Host"]?
 
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers lacks Host!" } unless headers_host
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers Host is empty!" } if headers_host.empty?
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
@@ -216,7 +228,7 @@ class CONNECT::Server
 
       # If HTTP::Request.method is not CONNECT, We need to swap host and port and set Default port to 80.
 
-      unless "CONNECT" == http_request.method
+      unless "CONNECT" == request.method
         host = port if host.empty?
         port = "80" if host == port unless port.empty?
       end
@@ -224,8 +236,8 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] host or port is empty!" } if host.empty? || port.empty?
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] port is non-Integer type!" } unless _port = port.to_i?
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
@@ -260,13 +272,15 @@ class CONNECT::Server
 
       check_destination_protection! destination_address: destination_address
     rescue ex
-      http_client_response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: http_request.version, body_io: nil
-      http_client_response.to_io io: session
+      response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
+      response.to_io io: session
 
       raise ex
     end
 
-    http_request.headers.delete "Proxy-Connection"
+    request.headers.delete "Proxy-Connection"
+
+    true
   end
 
   private def check_destination_protection!(destination_address : Address | Socket::IPAddress) : Bool

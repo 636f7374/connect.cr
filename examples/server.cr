@@ -40,7 +40,7 @@ loop do
 
   spawn do
     begin
-      server.establish! session: _session, sync_create_outbound_socket: true
+      server.establish! session: _session, start_immediately: true, sync_create_outbound_socket: true
     rescue ex
       _session.cleanup rescue nil
 
