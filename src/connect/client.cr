@@ -102,6 +102,12 @@ class CONNECT::Client < IO
   end
 
   def establish!(destination_address : Socket::IPAddress | Address, remote_dns_resolution : Bool = true, user_agent : String? = nil)
+    Client.establish! outbound: outbound, destination_address: destination_address, dns_resolver: dnsResolver, authentication_method: authentication_method,
+      authenticate_frame: authenticate_frame, remote_dns_resolution: remote_dns_resolution, user_agent: user_agent
+  end
+
+  def self.establish!(outbound : IO, destination_address : Socket::IPAddress | Address, dns_resolver : DNS::Resolver?, authentication_method : Frames::AuthenticationFlag,
+                      authenticate_frame : Frames::Authenticate? = nil, remote_dns_resolution : Bool = true, user_agent : String? = nil)
     case destination_address
     in Socket::IPAddress
     in Address
@@ -112,7 +118,8 @@ class CONNECT::Client < IO
       case destination_address
       in Socket::IPAddress
       in Address
-        fetch_type, ip_addresses = dnsResolver.getaddrinfo host: destination_address.host, port: destination_address.port
+        raise Exception.new String.build { |io| io << "Client.establish!: dns_resolver is Nil!" } unless dns_resolver
+        fetch_type, ip_addresses = dns_resolver.getaddrinfo host: destination_address.host, port: destination_address.port
         destination_address = ip_addresses.first
       end
     end
@@ -132,14 +139,14 @@ class CONNECT::Client < IO
     case authentication_method
     in .no_authentication?
     in .basic?
-      raise Exception.new String.build { |io| io << "Client.authenticate_frame is Nil!" } unless _authenticate_frame = authenticate_frame
+      raise Exception.new String.build { |io| io << "Client.establish!: Client.authenticate_frame is Nil!" } unless _authenticate_frame = authenticate_frame
       request.headers["Proxy-Authorization"] = proxy_authorization = String.build { |io| io << "Basic" << " " << Base64.strict_encode(String.build { |_io| _io << _authenticate_frame.userName << ":" << _authenticate_frame.password }) }
     end
 
     request.to_io io: outbound
-    http_response = HTTP::Client::Response.from_io io: outbound, ignore_body: true, decompress: false
-    return true if http_response.status.ok? && ("connection established" == http_response.status_message.try &.downcase)
+    response = HTTP::Client::Response.from_io io: outbound, ignore_body: true, decompress: false
+    return true if response.status.ok? && ("connection established" == response.status_message.try &.downcase)
 
-    raise Exception.new String.build { |io| io << "Failed status received: " << "(Code: [" << http_response.status.to_i << "] | Message: [" << http_response.status_message << "])." }
+    raise Exception.new String.build { |io| io << "Client.establish!: Failed status received: " << "(Code: [" << response.status.to_i << "] | Message: [" << response.status_message << "])." }
   end
 end
