@@ -56,7 +56,7 @@ class CONNECT::Server
 
     # Put Frames::Destination into Session.
 
-    session.destination_frame = Frames::Destination.new request: request
+    session.destination_frame = destination_frame = Frames::Destination.new request: request
 
     # Check (proxy_authorization, client_validity).
 
@@ -77,15 +77,27 @@ class CONNECT::Server
     end
 
     return request unless start_immediately
-    establish! session: session, request: request, sync_create_outbound_socket: sync_create_outbound_socket
+    establish! session: session, request: request, destination_frame: session.destination_frame, sync_create_outbound_socket: sync_create_outbound_socket
 
     request
   end
 
-  def establish!(session : Session, request : HTTP::Request, sync_create_outbound_socket : Bool = true) : Bool
+  def establish!(session : Session, request : HTTP::Request, destination_frame : CONNECT::Frames::Destination?, sync_create_outbound_socket : Bool = true) : Bool
     # If syncCreateOutboundSocket is true, then create Outbound socket.
 
-    session.outbound = create_outbound_socket!(session: session, request: request) if sync_create_outbound_socket
+    if sync_create_outbound_socket
+      begin
+        raise Exception.new "Server.establish!: Session.destination_frame is Nil!" unless destination_frame
+      rescue ex
+        response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
+        response.to_io io: session
+
+        raise ex
+      end
+
+      session.outbound = create_outbound_socket! session: session, request: request, destination_frame: destination_frame
+    end
+
     destination_frame = session.destination_frame
 
     # If HTTP::Request.method is `CONNECT`, then check whether the established HTTP::Request is HTTPS.
@@ -106,10 +118,8 @@ class CONNECT::Server
       read_only_extract = Quirks::Extract.new partMemory: pre_extract_memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
 
-      if destination_frame
-        traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficType::HTTP : TrafficType::HTTPS
-        destination_frame.trafficType = traffic_type
-      end
+      traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficType::HTTP : TrafficType::HTTPS
+      destination_frame.try &.trafficType = traffic_type
     else
       memory = IO::Memory.new
       request.to_io io: memory
@@ -125,9 +135,8 @@ class CONNECT::Server
     true
   end
 
-  private def create_outbound_socket!(session : Session, request : HTTP::Request) : TCPSocket
+  private def create_outbound_socket!(session : Session, request : HTTP::Request, destination_frame : CONNECT::Frames::Destination) : TCPSocket
     begin
-      raise Exception.new "Server.establish!: Session.destination_frame is Nil!" unless destination_frame = session.destination_frame
       destination_address = destination_frame.get_destination_address
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
