@@ -237,7 +237,7 @@ class CONNECT::Server
       # We need to find them out, if not, set the default to port 80.
 
       host, delimiter, port = request.resource.rpartition ":"
-      host, delimiter, port = headers_host.rpartition ":" if host.empty? || delimiter.empty? || port.empty?
+      host, delimiter, port = headers_host.rpartition ":" unless port.to_i?
       host, port = Tuple.new port, "80" if host.empty? && delimiter.empty? && !port.size.zero?
 
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] host or port is empty!" } if host.empty? || port.empty?
