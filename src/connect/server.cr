@@ -90,7 +90,7 @@ class CONNECT::Server
         raise Exception.new "Server.establish!: Session.destination_frame is Nil!" unless destination_frame
       rescue ex
         response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-        response.to_io io: session
+        response.to_io io: session rescue nil
 
         raise ex
       end
@@ -140,7 +140,7 @@ class CONNECT::Server
       destination_address = destination_frame.get_destination_address
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
@@ -164,7 +164,7 @@ class CONNECT::Server
       end
     rescue ex
       response = HTTP::Client::Response.new status_code: 504_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
@@ -188,7 +188,7 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] is empty!" } if headers_proxy_authorization.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
@@ -208,7 +208,7 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] onAuth callback returns Denied!" } if permission_type.denied?
     rescue ex
       response = HTTP::Client::Response.new status_code: 401_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
@@ -227,26 +227,24 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers Host is empty!" } if headers_host.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
 
     begin
-      host, delimiter, port = headers_host.rpartition ":"
+      # Sometimes the destination information exists in Request.resource, sometimes it exists in Request.headers[Host].
+      # We need to find them out, if not, set the default to port 80.
 
-      # If HTTP::Request.method is not CONNECT, We need to swap host and port and set Default port to 80.
-
-      unless "CONNECT" == request.method
-        host = port if host.empty?
-        port = "80" if host == port unless port.empty?
-      end
+      host, delimiter, port = request.resource.rpartition ":"
+      host, delimiter, port = headers_host.rpartition ":" if host.empty? || delimiter.empty? || port.empty?
+      host, port = Tuple.new port, "80" if host.empty? && delimiter.empty? && !port.size.zero?
 
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] host or port is empty!" } if host.empty? || port.empty?
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] port is non-Integer type!" } unless _port = port.to_i?
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
@@ -282,7 +280,7 @@ class CONNECT::Server
       check_destination_protection! destination_address: destination_address
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session rescue nil
 
       raise ex
     end
