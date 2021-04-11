@@ -35,6 +35,11 @@ class CONNECT::SessionProcessor
   private def set_transfer_options(transfer : Transfer)
     # This function is used as an overridable.
     # E.g. SessionID.
+
+    set_transfer_options! transfer: transfer
+  end
+
+  private def set_transfer_options!(transfer : Transfer)
   end
 
   private def heartbeat_proc : Proc(Transfer, Nil)?

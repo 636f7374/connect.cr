@@ -182,9 +182,7 @@ class CONNECT::Server
   private def check_basic_proxy_authorization!(session : Session, request : HTTP::Request) : Bool
     begin
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers is empty!" } unless request_headers = request.headers
-      headers_proxy_authorization = request_headers["Proxy-Authorization"]?
-
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers lacks [Proxy-Authorization]!" } unless headers_proxy_authorization
+      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers lacks [Proxy-Authorization]!" } unless headers_proxy_authorization = request_headers["Proxy-Authorization"]?
       raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] is empty!" } if headers_proxy_authorization.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
@@ -221,9 +219,7 @@ class CONNECT::Server
   private def check_client_validity!(session : Session, request : HTTP::Request) : Bool
     begin
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers is empty!" } unless request_headers = request.headers
-      headers_host = request_headers["Host"]?
-
-      raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers lacks Host!" } unless headers_host
+      raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers lacks Host!" } unless headers_host = request_headers["Host"]?
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers Host is empty!" } if headers_host.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
