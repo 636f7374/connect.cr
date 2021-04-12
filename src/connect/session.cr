@@ -205,16 +205,15 @@ class CONNECT::Session < IO
     inbound.closed?
   end
 
-  protected def check_authorization!(server : Server, request : HTTP::Request)
+  def check_authorization!(server : Server, request : HTTP::Request, response : HTTP::Server::Response?)
     case server_authorization = server.authorization
     in .no_authorization?
     in .basic?
-      check_basic_authorization! server: server, request: request, authorization: server_authorization
-      request.headers.delete "Proxy-Authorization"
+      check_basic_authorization! server: server, authorization: server_authorization, request: request, response: response
     end
   end
 
-  private def check_basic_authorization!(server : Server, request : HTTP::Request, authorization : Frames::AuthorizationFlag)
+  private def check_basic_authorization!(server : Server, authorization : Frames::AuthorizationFlag, request : HTTP::Request, response : HTTP::Server::Response?)
     begin
       raise Exception.new String.build { |io| io << "Session.check_basic_authorization!: Server expects authorizationFlag to be " << authorization << ", But the client HTTP::Headers is empty!" } unless request_headers = request.headers
     rescue ex
@@ -225,13 +224,14 @@ class CONNECT::Session < IO
     end
 
     if headers_authorization = request_headers["Proxy-Authorization"]?
-      check_basic_authorization! server: server, authorization: authorization, request: request, value: headers_authorization
+      check_basic_authorization! server: server, authorization: authorization, request: request, response: response, value: headers_authorization
+      request.headers.delete "Proxy-Authorization"
 
       return
     end
 
     if headers_sec_websocket_protocol = request_headers["Sec-WebSocket-Protocol"]?
-      check_sec_websocket_protocol_authorization! server: server, authorization: authorization, request: request, value: headers_sec_websocket_protocol
+      check_sec_websocket_protocol_authorization! server: server, authorization: authorization, request: request, response: response, value: headers_sec_websocket_protocol
 
       return
     end
@@ -243,7 +243,7 @@ class CONNECT::Session < IO
   end
 
   {% for authorization_type in ["basic", "sec_websocket_protocol"] %}
-  private def check_{{authorization_type.id}}_authorization!(server : Server, authorization : Frames::AuthorizationFlag, request : HTTP::Request, value : String) : Bool
+  private def check_{{authorization_type.id}}_authorization!(server : Server, authorization : Frames::AuthorizationFlag, request : HTTP::Request, response : HTTP::Server::Response?, value : String) : Bool
     {% if "basic" == authorization_type %}
       authorization_headers_key = "Proxy-Authorization"
     {% else %}
@@ -289,6 +289,10 @@ class CONNECT::Session < IO
 
       raise ex
     end
+
+    {% if "sec_websocket_protocol" == authorization_type %}
+      response.try &.headers["Sec-WebSocket-Protocol"] = authorization_type
+    {% end %}
 
     self.authorize_frame = Frames::Authorize.new authorizationType: Frames::AuthorizationFlag::Basic, userName: user_name, password: password
 

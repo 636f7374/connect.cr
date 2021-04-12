@@ -60,7 +60,7 @@ class CONNECT::Server
 
     # Check (proxy_authorization, client_validity).
 
-    session.check_authorization! server: self, request: request
+    session.check_authorization! server: self, request: request, response: nil
     check_client_validity! session: session, request: request
 
     # Put HTTP::Request and local_address, remote_address into Session.
