@@ -21,9 +21,9 @@ server = CONNECT::Server.new io: tcp_server, dnsResolver: dns_resolver, options:
 server.client_timeout = CONNECT::TimeOut.new
 server.outbound_timeout = CONNECT::TimeOut.new
 
-# You can set `CONNECT::Server.authentication`, such as (`Basic` and CONNECT::Server.on_auth).
+# You can set `CONNECT::Server.authorization`, such as (`Basic` and CONNECT::Server.on_auth).
 
-server.authentication = CONNECT::Frames::AuthenticationFlag::Basic
+server.authorization = CONNECT::Frames::AuthorizationFlag::Basic
 server.on_auth = ->(user_name : String?, password : String?) do
   return CONNECT::Frames::PermissionFlag::Denied unless _user_name = user_name
   return CONNECT::Frames::PermissionFlag::Denied if "admin" != _user_name

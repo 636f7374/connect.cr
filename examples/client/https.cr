@@ -15,13 +15,13 @@ options.client.alwaysUseTunnel = true
 
 # `CONNECT::Client.new` will create a socket connected to the destination address.
 
-client = CONNECT::Client.new host: "127.0.0.1", port: 1234_i32, dns_resolver: dns_resolver, timeout: CONNECT::TimeOut.new, options: options
+client = CONNECT::Client.new host: "0.0.0.0", port: 1234_i32, dns_resolver: dns_resolver, timeout: CONNECT::TimeOut.new, options: options
 
-# Then you can add Authentication Methods, such as `Basic`.
+# Then you can add Authorization Methods, such as `Basic`.
 
-client.authentication_method = CONNECT::Frames::AuthenticationFlag::Basic
-authenticate_frame = CONNECT::Frames::Authenticate.new authenticationType: CONNECT::Frames::AuthenticationFlag::Basic, userName: "admin", password: "abc123"
-client.authenticate_frame = authenticate_frame
+client.authorization_method = CONNECT::Frames::AuthorizationFlag::Basic
+authorize_frame = CONNECT::Frames::Authorize.new authorizationType: CONNECT::Frames::AuthorizationFlag::Basic, userName: "admin", password: "abc123"
+client.authorize_frame = authorize_frame
 
 begin
   # Establish a Tunnel to example.com through outbound.

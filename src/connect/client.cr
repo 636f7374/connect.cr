@@ -24,20 +24,20 @@ class CONNECT::Client < IO
     new outbound: socket, dnsResolver: dns_resolver, options: options
   end
 
-  def authenticate_frame=(value : Frames::Authenticate)
-    @authenticateFrame = value
+  def authorize_frame=(value : Frames::Authorize)
+    @authorizeFrame = value
   end
 
-  def authenticate_frame
-    @authenticateFrame
+  def authorize_frame
+    @authorizeFrame
   end
 
-  def authentication_method=(value : Frames::AuthenticationFlag)
-    @authenticationMethod = value
+  def authorization_method=(value : Frames::AuthorizationFlag)
+    @authorizationMethod = value
   end
 
-  def authentication_method
-    @authenticationMethod ||= Frames::AuthenticationFlag::NoAuthentication
+  def authorization_method
+    @authorizationMethod ||= Frames::AuthorizationFlag::NoAuthorization
   end
 
   def read_timeout=(value : Int | Time::Span | Nil)
@@ -102,12 +102,12 @@ class CONNECT::Client < IO
   end
 
   def establish!(destination_address : Socket::IPAddress | Address, remote_dns_resolution : Bool = true, user_agent : String? = nil)
-    Client.establish! outbound: outbound, destination_address: destination_address, dns_resolver: dnsResolver, authentication_method: authentication_method,
-      authenticate_frame: authenticate_frame, remote_dns_resolution: remote_dns_resolution, user_agent: user_agent
+    Client.establish! outbound: outbound, destination_address: destination_address, dns_resolver: dnsResolver, authorization_method: authorization_method,
+      authorize_frame: authorize_frame, remote_dns_resolution: remote_dns_resolution, user_agent: user_agent
   end
 
-  def self.establish!(outbound : IO, destination_address : Socket::IPAddress | Address, dns_resolver : DNS::Resolver?, authentication_method : Frames::AuthenticationFlag,
-                      authenticate_frame : Frames::Authenticate? = nil, remote_dns_resolution : Bool = true, user_agent : String? = nil)
+  def self.establish!(outbound : IO, destination_address : Socket::IPAddress | Address, dns_resolver : DNS::Resolver?, authorization_method : Frames::AuthorizationFlag,
+                      authorize_frame : Frames::Authorize? = nil, remote_dns_resolution : Bool = true, user_agent : String? = nil)
     case destination_address
     in Socket::IPAddress
     in Address
@@ -136,11 +136,14 @@ class CONNECT::Client < IO
     request.headers["Proxy-Connection"] = "Keep-Alive"
     request.headers["Host"] = text_destination_address
 
-    case authentication_method
-    in .no_authentication?
+    case authorization_method
+    in .no_authorization?
     in .basic?
-      raise Exception.new String.build { |io| io << "Client.establish!: Client.authenticate_frame is Nil!" } unless _authenticate_frame = authenticate_frame
-      request.headers["Proxy-Authorization"] = proxy_authorization = String.build { |io| io << "Basic" << " " << Base64.strict_encode(String.build { |_io| _io << _authenticate_frame.userName << ":" << _authenticate_frame.password }) }
+      raise Exception.new String.build { |io| io << "Client.establish!: Client.authorizeFrame is Nil!" } unless _authorize_frame = authorize_frame
+      raise Exception.new String.build { |io| io << "Client.establish!: Client.authorizeFrame.userName is Nil!" } unless _authorize_frame_user_name = _authorize_frame.userName
+      raise Exception.new String.build { |io| io << "Client.establish!: Client.authorizeFrame.password is Nil!" } unless _authorize_frame_password = _authorize_frame.password
+
+      request.headers["Proxy-Authorization"] = proxy_authorization = String.build { |io| io << "Basic" << ' ' << Base64.strict_encode(String.build { |_io| _io << _authorize_frame_user_name << ':' << _authorize_frame_password }) }
     end
 
     request.to_io io: outbound

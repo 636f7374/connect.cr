@@ -16,12 +16,12 @@ class CONNECT::Server
     _io.responds_to?(:remote_address) ? _io.remote_address : nil
   end
 
-  def authentication=(value : Frames::AuthenticationFlag)
-    @authentication = value
+  def authorization=(value : Frames::AuthorizationFlag)
+    @authorization = value
   end
 
-  def authentication
-    @authentication ||= Frames::AuthenticationFlag::NoAuthentication
+  def authorization
+    @authorization ||= Frames::AuthorizationFlag::NoAuthorization
   end
 
   def on_auth=(value : Proc(String?, String?, Frames::PermissionFlag))
@@ -60,7 +60,7 @@ class CONNECT::Server
 
     # Check (proxy_authorization, client_validity).
 
-    check_proxy_authorization! session: session, request: request
+    session.check_authorization! server: self, request: request
     check_client_validity! session: session, request: request
 
     # Put HTTP::Request and local_address, remote_address into Session.
@@ -168,52 +168,6 @@ class CONNECT::Server
 
       raise ex
     end
-  end
-
-  private def check_proxy_authorization!(session : Session, request : HTTP::Request)
-    case authentication
-    in .no_authentication?
-    in .basic?
-      check_basic_proxy_authorization! session: session, request: request
-      request.headers.delete "Proxy-Authorization"
-    end
-  end
-
-  private def check_basic_proxy_authorization!(session : Session, request : HTTP::Request) : Bool
-    begin
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers is empty!" } unless request_headers = request.headers
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers lacks [Proxy-Authorization]!" } unless headers_proxy_authorization = request_headers["Proxy-Authorization"]?
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] is empty!" } if headers_proxy_authorization.empty?
-    rescue ex
-      response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
-
-      raise ex
-    end
-
-    begin
-      authentication_type, delimiter, base64_user_name_password = headers_proxy_authorization.rpartition " "
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] authenticationType or base64UserNamePassword is empty!" } if authentication_type.empty? || base64_user_name_password.empty?
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] type is not UserNamePassword! (" << authentication_type << ")" } if "Basic" != authentication_type
-
-      decoded_base64_user_name_password = Base64.decode_string base64_user_name_password rescue nil
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] Base64 decoding failed!" } unless decoded_base64_user_name_password
-
-      user_name, delimiter, password = decoded_base64_user_name_password.rpartition ":"
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] username or password is empty!" } if user_name.empty? || password.empty?
-
-      permission_type = on_auth.try &.call(user_name, password) || Frames::PermissionFlag::Passed
-      raise Exception.new String.build { |io| io << "Server.check_basic_proxy_authorization!: Your server expects AuthenticationFlag to be " << authentication << ", But the client HTTP::Headers[Proxy-Authorization] onAuth callback returns Denied!" } if permission_type.denied?
-    rescue ex
-      response = HTTP::Client::Response.new status_code: 401_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
-
-      raise ex
-    end
-
-    session.authenticate_frame = Frames::Authenticate.new authenticationType: Frames::AuthenticationFlag::Basic, userName: user_name, password: password
-
-    true
   end
 
   private def check_client_validity!(session : Session, request : HTTP::Request) : Bool
