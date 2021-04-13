@@ -51,9 +51,16 @@ class CONNECT::Server
   def establish!(session : Session, start_immediately : Bool = true, sync_create_outbound_socket : Bool = true) : HTTP::Request
     # Check whether HTTP::Request can be obtained, and check it's Headers `Proxy-Authorization`.
 
-    request = HTTP::Request.from_io io: session, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
+    request = HTTP::Request.from_io io: session.inbound, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
     raise Exception.new String.build { |io| io << "Server.establish!: HTTP::Request.from_io type is not HTTP::Request (" << request.class << ")." } unless request.is_a? HTTP::Request
 
+    return request unless start_immediately
+    establish! session: session, request: request, start_immediately: start_immediately, sync_create_outbound_socket: sync_create_outbound_socket
+
+    request
+  end
+
+  def establish!(session : Session, request : HTTP::Request, start_immediately : Bool = true, sync_create_outbound_socket : Bool = true) : HTTP::Request
     # Put Frames::Destination into Session.
 
     session.destination_frame = destination_frame = Frames::Destination.new request: request
