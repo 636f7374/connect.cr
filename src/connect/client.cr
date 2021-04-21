@@ -96,18 +96,18 @@ class CONNECT::Client < IO
     outbound.closed?
   end
 
-  def establish!(host : String, port : Int32, remote_dns_resolution : Bool = true, user_agent : String? = nil)
+  def establish!(host : String, port : Int32, remote_dns_resolution : Bool = true, headers : HTTP::Headers = options.client.headers, data_raw : String? = options.client.dataRaw)
     destination_address = Address.new host: host, port: port
-    establish! destination_address: destination_address, remote_dns_resolution: remote_dns_resolution, user_agent: user_agent
+    establish! destination_address: destination_address, remote_dns_resolution: remote_dns_resolution, headers: headers, data_raw: data_raw
   end
 
-  def establish!(destination_address : Socket::IPAddress | Address, remote_dns_resolution : Bool = true, user_agent : String? = nil)
+  def establish!(destination_address : Socket::IPAddress | Address, remote_dns_resolution : Bool = true, headers : HTTP::Headers = options.client.headers, data_raw : String? = options.client.data_raw)
     Client.establish! outbound: outbound, destination_address: destination_address, dns_resolver: dnsResolver, authorization_method: authorization_method,
-      authorize_frame: authorize_frame, remote_dns_resolution: remote_dns_resolution, user_agent: user_agent
+      authorize_frame: authorize_frame, remote_dns_resolution: remote_dns_resolution, headers: headers, data_raw: data_raw
   end
 
-  def self.establish!(outbound : IO, destination_address : Socket::IPAddress | Address, dns_resolver : DNS::Resolver?, authorization_method : Frames::AuthorizationFlag,
-                      authorize_frame : Frames::Authorize? = nil, remote_dns_resolution : Bool = true, user_agent : String? = nil)
+  def self.establish!(outbound : IO, destination_address : Socket::IPAddress | Address, dns_resolver : DNS::Resolver?, authorization_method : Frames::AuthorizationFlag, authorize_frame : Frames::Authorize? = nil,
+                      remote_dns_resolution : Bool = true, headers : HTTP::Headers = HTTP::Headers.new, data_raw : String? = nil)
     case destination_address
     in Socket::IPAddress
     in Address
@@ -131,8 +131,7 @@ class CONNECT::Client < IO
       text_destination_address = String.build { |io| io << destination_address.host << ":" << destination_address.port }
     end
 
-    request = HTTP::Request.new method: "CONNECT", resource: text_destination_address, headers: HTTP::Headers.new, version: "HTTP/1.1"
-    user_agent.try { |_user_agent| request["User-Agent"] = _user_agent }
+    request = HTTP::Request.new method: "CONNECT", resource: text_destination_address, headers: headers, body: data_raw, version: "HTTP/1.1"
     request.headers["Proxy-Connection"] = "Keep-Alive"
     request.headers["Host"] = text_destination_address
 
@@ -148,7 +147,13 @@ class CONNECT::Client < IO
 
     request.to_io io: outbound
     response = HTTP::Client::Response.from_io io: outbound, ignore_body: true, decompress: false
-    return true if response.status.ok? && ("connection established" == response.status_message.try &.downcase)
+
+    case response.version
+    when "HTTP/1.0"
+      return true if response.status.ok?
+    when "HTTP/1.1"
+      return true if response.status.ok? && ("connection established" == response.status_message.try &.downcase)
+    end
 
     raise Exception.new String.build { |io| io << "Client.establish!: Failed status received: " << "(Code: [" << response.status.to_i << "] | Message: [" << response.status_message << "])." }
   end

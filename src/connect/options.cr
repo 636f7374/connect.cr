@@ -15,10 +15,10 @@ struct CONNECT::Options
   end
 
   struct Client
-    property alwaysUseTunnel : Bool
+    property headers : HTTP::Headers
+    property dataRaw : String?
 
-    def initialize
-      @alwaysUseTunnel = true
+    def initialize(@headers : HTTP::Headers = HTTP::Headers.new, @dataRaw : String? = nil)
     end
   end
 

@@ -11,7 +11,6 @@ dns_resolver = DNS::Resolver.new dnsServers: dns_servers
 # Create CONNECT::Options.
 
 options = CONNECT::Options.new
-options.client.alwaysUseTunnel = true
 
 # `CONNECT::Client.new` will create a socket connected to the destination address.
 
