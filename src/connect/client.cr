@@ -133,7 +133,7 @@ class CONNECT::Client < IO
 
     request = HTTP::Request.new method: "CONNECT", resource: text_destination_address, headers: headers, body: data_raw, version: "HTTP/1.1"
     request.headers["Proxy-Connection"] = "Keep-Alive"
-    request.headers["Host"] = text_destination_address
+    request.headers["Host"] = headers["Host"]? || text_destination_address
 
     case authorization_method
     in .no_authorization?
