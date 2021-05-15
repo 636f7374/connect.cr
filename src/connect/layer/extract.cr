@@ -1,4 +1,4 @@
-module CONNECT::Quirks
+module CONNECT::Layer
   class Extract < IO
     getter partMemory : IO::Memory
     getter wrapped : IO
@@ -11,7 +11,7 @@ module CONNECT::Quirks
     end
 
     def write(slice : Bytes) : Nil
-      raise Exception.new "Read-only IO, not writable!"
+      raise Exception.new "CONNECT::Layer::Extract.write: Read-only IO, not writable!"
     end
 
     def read(slice : Bytes) : Int32

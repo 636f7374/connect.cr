@@ -126,9 +126,9 @@ class CONNECT::Client < IO
 
     case destination_address
     in Socket::IPAddress
-      text_destination_address = String.build { |io| io << destination_address.address << ":" << destination_address.port }
+      text_destination_address = String.build { |io| io << destination_address.address << ':' << destination_address.port }
     in Address
-      text_destination_address = String.build { |io| io << destination_address.host << ":" << destination_address.port }
+      text_destination_address = String.build { |io| io << destination_address.host << ':' << destination_address.port }
     end
 
     request = HTTP::Request.new method: "CONNECT", resource: text_destination_address, headers: headers, body: data_raw, version: "HTTP/1.1"
