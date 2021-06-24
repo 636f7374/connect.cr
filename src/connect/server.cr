@@ -157,7 +157,7 @@ class CONNECT::Server
       in Address
         raise Exception.new "Server.establish!: Server.dnsResolver is Nil!" unless dns_resolver = dnsResolver
 
-        socket = TCPSocket.new host: destination_address.host, port: destination_address.port, dns_resolver: dns_resolver, connect_timeout: outbound_timeout.connect, delegator: nil
+        socket = TCPSocket.new host: destination_address.host, port: destination_address.port, dns_resolver: dns_resolver, connect_timeout: outbound_timeout.connect, caller: nil
         socket.read_timeout = outbound_timeout.read
         socket.write_timeout = outbound_timeout.write
 
