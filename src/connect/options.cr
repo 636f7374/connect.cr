@@ -23,17 +23,17 @@ struct CONNECT::Options
   end
 
   struct Server
-    property destinationProtection : DestinationProtection?
+    property destinationBlocker : DestinationBlocker?
     property maxRequestLineSize : Int32
     property maxHeadersSize : Int32
 
     def initialize
-      @destinationProtection = DestinationProtection.new
+      @destinationBlocker = DestinationBlocker.new
       @maxRequestLineSize = HTTP::MAX_REQUEST_LINE_SIZE
       @maxHeadersSize = HTTP::MAX_HEADERS_SIZE
     end
 
-    struct DestinationProtection
+    struct DestinationBlocker
       property addresses : Set(Address)
       property ipAddresses : Set(Socket::IPAddress)
 
