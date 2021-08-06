@@ -1,9 +1,9 @@
 class CONNECT::SessionProcessor
   property session : Session
   getter callback : Proc(Transfer, UInt64, UInt64, Nil)?
-  getter heartbeatCallback : Proc(Transfer, Time::Span, Nil)?
+  getter heartbeatCallback : Proc(Transfer, Time::Span, Bool)?
 
-  def initialize(@session : Session, @callback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Nil)? = nil)
+  def initialize(@session : Session, @callback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Bool)? = nil)
   end
 
   def perform(server : Server)
@@ -42,10 +42,18 @@ class CONNECT::SessionProcessor
   private def __set_transfer_options(transfer : Transfer)
   end
 
-  private def heartbeat_proc : Proc(Transfer, Time::Span, Nil)?
+  private def heartbeat_proc : Proc(Transfer, Time::Span, Bool)?
     ->(transfer : Transfer, heartbeat_interval : Time::Span) do
-      return sleep heartbeat_interval unless _heartbeat_callback = heartbeatCallback
-      _heartbeat_callback.call transfer, heartbeat_interval
+      _heartbeat_callback = heartbeatCallback
+      heartbeat = _heartbeat_callback ? _heartbeat_callback.call(transfer, heartbeat_interval) : true
+
+      unless _heartbeat_callback
+        sleep heartbeat_interval
+
+        return true
+      end
+
+      return !!heartbeat
     end
   end
 end
