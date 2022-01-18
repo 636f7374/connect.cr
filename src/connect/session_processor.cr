@@ -1,35 +1,50 @@
 class CONNECT::SessionProcessor
   property session : Session
-  getter callback : Proc(Transfer, UInt64, UInt64, Nil)?
+  getter finishCallback : Proc(Transfer, UInt64, UInt64, Nil)?
   getter heartbeatCallback : Proc(Transfer, Time::Span, Bool)?
 
-  def initialize(@session : Session, @callback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Bool)? = nil)
+  def initialize(@session : Session, @finishCallback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Bool)? = nil)
   end
 
-  def perform(server : Server)
-    return session.cleanup unless outbound = session.outbound
+  def perform(server : Server) : Bool
+    unless outbound = session.outbound
+      session.syncCloseOutbound = true
+      session.cleanup
 
-    transfer = Transfer.new source: session, destination: outbound, callback: callback, heartbeatCallback: heartbeat_proc
-    set_transfer_options transfer: transfer
-    session.set_transfer_tls transfer: transfer, reset: true
+      return false
+    end
 
+    transfer = Transfer.new source: session, destination: outbound, finishCallback: nil, heartbeatCallback: nil
     perform transfer: transfer
-    transfer.reset!
   end
 
-  private def perform(transfer : Transfer)
+  private def perform(transfer : Transfer) : Bool
+    session.syncCloseOutbound = false
+    set_transfer_options transfer: transfer
+
     transfer.perform
 
     loop do
-      if transfer.done?
-        transfer.cleanup
-        session.reset reset_tls: true
-
-        break
+      case transfer
+      when .sent_done?
+        transfer.destination.close rescue nil unless transfer.destination.closed?
+      when .receive_done?
+        transfer.source.close rescue nil unless transfer.source.closed?
       end
 
-      next sleep 0.25_f32.seconds
+      break
     end
+
+    loop do
+      next sleep 0.25_f32.seconds unless transfer.finished?
+
+      break
+    end
+
+    session.syncCloseOutbound = true
+    session.cleanup
+
+    false
   end
 
   private def set_transfer_options(transfer : Transfer)
@@ -40,6 +55,10 @@ class CONNECT::SessionProcessor
   end
 
   private def __set_transfer_options(transfer : Transfer)
+    transfer.heartbeatInterval = session.options.session.heartbeatInterval
+    transfer.aliveInterval = session.options.session.aliveInterval
+    transfer.finishCallback = finishCallback
+    transfer.heartbeatCallback = heartbeatCallback ? heartbeatCallback : heartbeat_proc
   end
 
   private def heartbeat_proc : Proc(Transfer, Time::Span, Bool)?
@@ -48,6 +67,7 @@ class CONNECT::SessionProcessor
       heartbeat = _heartbeat_callback ? _heartbeat_callback.call(transfer, heartbeat_interval) : true
 
       unless _heartbeat_callback
+        transfer.reset_monitor_state
         sleep heartbeat_interval
 
         return true

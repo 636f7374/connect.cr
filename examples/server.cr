@@ -4,8 +4,8 @@ require "../src/connect.cr"
 # DNS.cr will send and receive DNS requests in concurrent.
 
 dns_servers = Set(DNS::Address).new
-dns_servers << DNS::Address.new ipAddress: Socket::IPAddress.new("8.8.8.8", 53_i32), protocolType: DNS::ProtocolType::UDP
-dns_servers << DNS::Address.new ipAddress: Socket::IPAddress.new("8.8.4.4", 853_i32), protocolType: DNS::ProtocolType::TLS
+dns_servers << DNS::Address::UDP.new ipAddress: Socket::IPAddress.new("8.8.8.8", 53_i32), timeout: DNS::TimeOut.new
+dns_servers << DNS::Address::TLS.new ipAddress: Socket::IPAddress.new("8.8.4.4", 853_i32), timeout: DNS::TimeOut.new, tls: nil
 dns_resolver = DNS::Resolver.new dnsServers: dns_servers
 
 # `CONNECT::Options`, adjust the server policy.
@@ -40,8 +40,9 @@ loop do
 
   spawn do
     begin
-      server.establish! session: _session, start_immediately: true, sync_create_outbound_socket: true
+      server.establish! session: _session, start_immediately: true, sync_create_outbound_socket: (_session.outbound ? false : true)
     rescue ex
+      session.syncCloseOutbound = true
       _session.cleanup rescue nil
 
       next

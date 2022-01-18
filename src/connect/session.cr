@@ -1,9 +1,10 @@
 class CONNECT::Session < IO
   property inbound : IO
+  getter options : Options
   property outbound : IO?
   property syncCloseOutbound : Bool
 
-  def initialize(@inbound : IO)
+  def initialize(@inbound : IO, @options : Options)
     @outbound = nil
     @syncCloseOutbound = true
   end
@@ -66,6 +67,10 @@ class CONNECT::Session < IO
     @sourceTlsSockets = source_tls_sockets
   end
 
+  def source_tls_sockets=(value : Set(OpenSSL::SSL::Socket::Server))
+    @sourceTlsSockets = value
+  end
+
   def source_tls_sockets
     @sourceTlsSockets ||= Set(OpenSSL::SSL::Socket::Server).new
   end
@@ -74,6 +79,10 @@ class CONNECT::Session < IO
     source_tls_contexts = @sourceTlsContexts ||= Set(OpenSSL::SSL::Context::Server).new
     source_tls_contexts << value
     @sourceTlsContexts = source_tls_contexts
+  end
+
+  def source_tls_contexts=(value : Set(OpenSSL::SSL::Context::Server))
+    @sourceTlsContexts = value
   end
 
   def source_tls_contexts
@@ -86,6 +95,10 @@ class CONNECT::Session < IO
     @destinationTlsSockets = destination_tls_sockets
   end
 
+  def destination_tls_sockets=(value : Set(OpenSSL::SSL::Socket::Client))
+    @destinationTlsSockets = value
+  end
+
   def destination_tls_sockets
     @destinationTlsSockets ||= Set(OpenSSL::SSL::Socket::Client).new
   end
@@ -94,6 +107,10 @@ class CONNECT::Session < IO
     destination_tls_contexts = @destinationTlsContexts ||= Set(OpenSSL::SSL::Context::Client).new
     destination_tls_contexts << value
     @destinationTlsContexts = destination_tls_contexts
+  end
+
+  def destination_tls_contexts=(value : Set(OpenSSL::SSL::Context::Client))
+    @destinationTlsContexts = value
   end
 
   def destination_tls_contexts
@@ -123,7 +140,7 @@ class CONNECT::Session < IO
   def cleanup : Bool
     close
     free_tls!
-    reset reset_tls: true
+    reset_socket reset_tls: true
 
     true
   end
@@ -164,7 +181,7 @@ class CONNECT::Session < IO
     end
   end
 
-  def reset(reset_tls : Bool)
+  def reset_socket(reset_tls : Bool)
     closed_memory = IO::Memory.new 0_i32
     closed_memory.close
 
@@ -179,11 +196,11 @@ class CONNECT::Session < IO
     end
   end
 
-  def reset_peer(side : Transfer::Side, reset_tls : Bool)
+  def reset_socket(sd_flag : Transfer::SDFlag, reset_tls : Bool)
     closed_memory = IO::Memory.new 0_i32
     closed_memory.close
 
-    case side
+    case sd_flag
     in .source?
       @inbound = closed_memory
 

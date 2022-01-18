@@ -306,7 +306,15 @@ class CONNECT::Server
       socket.write_timeout = _timeout.write if socket.responds_to? :write_timeout=
     end
 
-    Session.new inbound: socket
+    if socket.is_a? OpenSSL::SSL::Socket::Server
+      begin
+        socket.accept
+      rescue ex
+        return
+      end
+    end
+
+    Session.new inbound: socket, options: options
   end
 end
 

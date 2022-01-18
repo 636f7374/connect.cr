@@ -1,17 +1,9 @@
 struct CONNECT::Options
-  property connectionPool : ConnectionPool
   property client : Client
   property server : Server
+  property session : Session
 
-  def initialize(@connectionPool : ConnectionPool = ConnectionPool.new, @client : Client = Client.new, @server : Server = Server.new)
-  end
-
-  struct ConnectionPool
-    property clearInterval : Time::Span
-    property capacity : Int32
-
-    def initialize(@clearInterval : Time::Span = 10_i32.seconds, @capacity : Int32 = 5_i32)
-    end
+  def initialize(@client : Client = Client.new, @server : Server = Server.new, @session : Session = Session.new)
   end
 
   struct Client
@@ -41,6 +33,14 @@ struct CONNECT::Options
         @addresses = Set(Address).new
         @ipAddresses = Set(Socket::IPAddress).new
       end
+    end
+  end
+
+  struct Session
+    property aliveInterval : Time::Span
+    property heartbeatInterval : Time::Span
+
+    def initialize(@aliveInterval : Time::Span = 30_i32.seconds, @heartbeatInterval : Time::Span = 3_i32.seconds)
     end
   end
 end
