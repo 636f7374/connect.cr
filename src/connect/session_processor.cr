@@ -15,10 +15,10 @@ class CONNECT::SessionProcessor
     end
 
     transfer = Transfer.new source: session, destination: outbound, finishCallback: nil, heartbeatCallback: nil
-    perform transfer: transfer
+    __perform transfer: transfer
   end
 
-  private def perform(transfer : Transfer) : Bool
+  private def __perform(transfer : Transfer) : Bool
     session.syncCloseOutbound = false
     set_transfer_options transfer: transfer
 

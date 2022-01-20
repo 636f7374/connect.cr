@@ -145,6 +145,38 @@ class CONNECT::Session < IO
     true
   end
 
+  def cleanup(sd_flag : Transfer::SDFlag, free_tls : Bool, reset : Bool = true)
+    case sd_flag
+    in .source?
+      @inbound.try &.close rescue nil
+    in .destination?
+      @outbound.try &.close rescue nil
+    end
+
+    case sd_flag
+    in .source?
+      free_source_tls
+    in .destination?
+      free_destination_tls
+    end
+
+    reset_socket sd_flag: sd_flag, reset_tls: free_tls if reset
+  end
+
+  private def free_source_tls
+    source_tls_sockets.try &.each &.free
+    source_tls_contexts.try &.each &.free
+
+    true
+  end
+
+  private def free_destination_tls
+    destination_tls_sockets.try &.each &.free
+    destination_tls_contexts.try &.each &.free
+
+    true
+  end
+
   private def free_tls!
     source_tls_sockets.each do |source_tls_socket|
       source_tls_socket.skip_finalize = true

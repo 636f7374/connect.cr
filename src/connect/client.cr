@@ -96,6 +96,15 @@ class CONNECT::Client < IO
     outbound.closed?
   end
 
+  def reset_socket : Bool
+    closed_memory = IO::Memory.new 0_i32
+    closed_memory.close
+
+    @outbound = closed_memory
+
+    true
+  end
+
   def establish!(host : String, port : Int32, remote_dns_resolution : Bool = true, headers : HTTP::Headers = options.client.headers, data_raw : String? = options.client.dataRaw)
     destination_address = Address.new host: host, port: port
     establish! destination_address: destination_address, remote_dns_resolution: remote_dns_resolution, headers: headers, data_raw: data_raw
