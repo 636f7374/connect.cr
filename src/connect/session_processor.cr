@@ -28,11 +28,15 @@ class CONNECT::SessionProcessor
       case transfer
       when .sent_done?
         transfer.destination.close rescue nil unless transfer.destination.closed?
+
+        break
       when .receive_done?
         transfer.source.close rescue nil unless transfer.source.closed?
+
+        break
       end
 
-      break
+      sleep 0.01_f32.seconds
     end
 
     loop do
