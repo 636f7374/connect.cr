@@ -61,62 +61,6 @@ class CONNECT::Session < IO
     @destinationFrame
   end
 
-  def add_source_tls_socket(value : OpenSSL::SSL::Socket::Server)
-    source_tls_sockets = @sourceTlsSockets ||= Set(OpenSSL::SSL::Socket::Server).new
-    source_tls_sockets << value
-    @sourceTlsSockets = source_tls_sockets
-  end
-
-  def source_tls_sockets=(value : Set(OpenSSL::SSL::Socket::Server))
-    @sourceTlsSockets = value
-  end
-
-  def source_tls_sockets
-    @sourceTlsSockets ||= Set(OpenSSL::SSL::Socket::Server).new
-  end
-
-  def add_source_tls_context=(value : OpenSSL::SSL::Context::Server)
-    source_tls_contexts = @sourceTlsContexts ||= Set(OpenSSL::SSL::Context::Server).new
-    source_tls_contexts << value
-    @sourceTlsContexts = source_tls_contexts
-  end
-
-  def source_tls_contexts=(value : Set(OpenSSL::SSL::Context::Server))
-    @sourceTlsContexts = value
-  end
-
-  def source_tls_contexts
-    @sourceTlsContexts ||= Set(OpenSSL::SSL::Context::Server).new
-  end
-
-  def add_destination_tls_socket(value : OpenSSL::SSL::Socket::Client)
-    destination_tls_sockets = @destinationTlsSockets ||= Set(OpenSSL::SSL::Socket::Client).new
-    destination_tls_sockets << value
-    @destinationTlsSockets = destination_tls_sockets
-  end
-
-  def destination_tls_sockets=(value : Set(OpenSSL::SSL::Socket::Client))
-    @destinationTlsSockets = value
-  end
-
-  def destination_tls_sockets
-    @destinationTlsSockets ||= Set(OpenSSL::SSL::Socket::Client).new
-  end
-
-  def add_destination_tls_context(value : OpenSSL::SSL::Context::Client)
-    destination_tls_contexts = @destinationTlsContexts ||= Set(OpenSSL::SSL::Context::Client).new
-    destination_tls_contexts << value
-    @destinationTlsContexts = destination_tls_contexts
-  end
-
-  def destination_tls_contexts=(value : Set(OpenSSL::SSL::Context::Client))
-    @destinationTlsContexts = value
-  end
-
-  def destination_tls_contexts
-    @destinationTlsContexts ||= Set(OpenSSL::SSL::Context::Client).new
-  end
-
   def read(slice : Bytes) : Int32
     return 0_i32 if slice.empty?
     inbound.read slice
@@ -139,13 +83,12 @@ class CONNECT::Session < IO
 
   def cleanup : Bool
     close
-    free_tls!
-    reset_socket reset_tls: true
+    reset_socket
 
     true
   end
 
-  def cleanup(sd_flag : Transfer::SDFlag, free_tls : Bool, reset : Bool = true)
+  def cleanup(sd_flag : Transfer::SDFlag, reset : Bool = true)
     case sd_flag
     in .source?
       @inbound.try &.close rescue nil
@@ -153,100 +96,26 @@ class CONNECT::Session < IO
       @outbound.try &.close rescue nil
     end
 
-    case sd_flag
-    in .source?
-      free_source_tls
-    in .destination?
-      free_destination_tls
-    end
-
-    reset_socket sd_flag: sd_flag, reset_tls: free_tls if reset
+    reset_socket sd_flag: sd_flag if reset
   end
 
-  private def free_source_tls
-    source_tls_sockets.try &.each &.free
-    source_tls_contexts.try &.each &.free
-
-    true
-  end
-
-  private def free_destination_tls
-    destination_tls_sockets.try &.each &.free
-    destination_tls_contexts.try &.each &.free
-
-    true
-  end
-
-  private def free_tls!
-    source_tls_sockets.each do |source_tls_socket|
-      source_tls_socket.skip_finalize = true
-      source_tls_socket.free
-    end
-
-    source_tls_contexts.each do |source_tls_context|
-      source_tls_context.skip_finalize = true
-      source_tls_context.free
-    end
-
-    destination_tls_sockets.each do |destination_tls_socket|
-      destination_tls_socket.skip_finalize = true
-      destination_tls_socket.free
-    end
-
-    destination_tls_contexts.each do |destination_tls_context|
-      destination_tls_context.skip_finalize = true
-      destination_tls_context.free
-    end
-  end
-
-  def set_transfer_tls(transfer : Transfer, reset : Bool)
-    transfer.source_tls_sockets = source_tls_sockets
-    transfer.source_tls_contexts = source_tls_contexts
-    transfer.destination_tls_sockets = destination_tls_sockets
-    transfer.destination_tls_contexts = destination_tls_contexts
-
-    if reset
-      @sourceTlsSockets = nil
-      @sourceTlsContexts = nil
-      @destinationTlsSockets = nil
-      @destinationTlsContexts = nil
-    end
-  end
-
-  def reset_socket(reset_tls : Bool)
+  def reset_socket
     closed_memory = IO::Memory.new 0_i32
     closed_memory.close
 
     @inbound = closed_memory
     @outbound = closed_memory
-
-    if reset_tls
-      @sourceTlsSockets = nil
-      @sourceTlsContexts = nil
-      @destinationTlsSockets = nil
-      @destinationTlsContexts = nil
-    end
   end
 
-  def reset_socket(sd_flag : Transfer::SDFlag, reset_tls : Bool)
+  def reset_socket(sd_flag : Transfer::SDFlag)
     closed_memory = IO::Memory.new 0_i32
     closed_memory.close
 
     case sd_flag
     in .source?
       @inbound = closed_memory
-
-      if reset_tls
-        @sourceTlsSockets = nil
-        @sourceTlsContexts = nil
-      end
     in .destination?
       @outbound = closed_memory
-
-      if reset_tls
-        @destinationTlsSockets = nil
-        @destinationTlsContexts = nil
-      end
     end
   end
 
