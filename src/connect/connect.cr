@@ -4,7 +4,7 @@ module CONNECT
     Reply = 1_u8
   end
 
-  enum TrafficType : UInt8
+  enum TrafficFlag : UInt8
     HTTP  = 0_u8
     HTTPS = 1_u8
   end

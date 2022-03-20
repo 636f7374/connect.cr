@@ -93,19 +93,8 @@ class CONNECT::Server
     # If syncCreateOutboundSocket is true, then create Outbound socket.
 
     if sync_create_outbound_socket
-      begin
-        raise Exception.new "Server.establish!: Session.destination_frame is Nil!" unless destination_frame
-      rescue ex
-        response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-        response.to_io io: session rescue nil
-
-        raise ex
-      end
-
       session.outbound = create_outbound_socket! session: session, request: request, destination_frame: destination_frame
     end
-
-    destination_frame = session.destination_frame
 
     # If HTTP::Request.method is `CONNECT`, then check whether the established HTTP::Request is HTTPS.
     # ** Because MITM servers need accurate results. **
@@ -122,19 +111,19 @@ class CONNECT::Server
       pre_extract_request = HTTP::Request.from_io io: pre_extract_memory, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
       pre_extract_memory.rewind
 
-      read_only_extract = Layer::Extract.new partMemory: pre_extract_memory, wrapped: session.inbound
+      read_only_extract = Layer::Extract.new memory: pre_extract_memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
 
-      traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficType::HTTP : TrafficType::HTTPS
+      traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficFlag::HTTP : TrafficFlag::HTTPS
       destination_frame.try &.trafficType = traffic_type
     else
       memory = IO::Memory.new
       request.to_io io: memory
       memory.rewind
 
-      read_only_extract = Layer::Extract.new partMemory: memory, wrapped: session.inbound
+      read_only_extract = Layer::Extract.new memory: memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
-      destination_frame.try &.trafficType = TrafficType::HTTP
+      destination_frame.try &.trafficType = TrafficFlag::HTTP
     end
 
     destination_frame.try { |_destination_frame| session.destination_frame = _destination_frame }
@@ -142,8 +131,9 @@ class CONNECT::Server
     true
   end
 
-  private def create_outbound_socket!(session : Session, request : HTTP::Request, destination_frame : CONNECT::Frames::Destination) : TCPSocket
+  private def create_outbound_socket!(session : Session, request : HTTP::Request, destination_frame : CONNECT::Frames::Destination?) : TCPSocket
     begin
+      raise Exception.new "Server.create_outbound_socket!: Session.destination_frame is Nil!" unless destination_frame
       destination_address = destination_frame.get_destination_address
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil

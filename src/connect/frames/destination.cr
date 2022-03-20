@@ -2,7 +2,7 @@ struct CONNECT::Frames
   struct Destination < Frames
     property request : HTTP::Request
     property tunnelMode : Bool?
-    property trafficType : TrafficType?
+    property trafficType : TrafficFlag?
     property addressType : AddressFlag?
     property destinationIpAddress : Socket::IPAddress?
     property destinationAddress : Address?

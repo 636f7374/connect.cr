@@ -1,13 +1,13 @@
 module CONNECT::Layer
   class Extract < IO
-    getter partMemory : IO::Memory
+    getter memory : IO::Memory
     getter wrapped : IO
 
-    def initialize(@partMemory : IO::Memory, @wrapped : IO)
+    def initialize(@memory : IO::Memory, @wrapped : IO)
     end
 
     private def eof? : Bool
-      partMemory.pos == partMemory.size
+      memory.pos == memory.size
     end
 
     def write(slice : Bytes) : Nil
@@ -15,10 +15,10 @@ module CONNECT::Layer
     end
 
     def read(slice : Bytes) : Int32
-      return wrapped.read slice if partMemory.closed?
+      return wrapped.read slice if memory.closed?
 
-      length = partMemory.read slice
-      partMemory.close if eof?
+      length = memory.read slice
+      memory.close if eof?
 
       length
     end

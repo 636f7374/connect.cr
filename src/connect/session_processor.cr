@@ -6,19 +6,19 @@ class CONNECT::SessionProcessor
   def initialize(@session : Session, @finishCallback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Bool)? = nil)
   end
 
-  def perform(server : Server) : Bool
+  def perform(server : Server) : Nil
     unless outbound = session.outbound
       session.syncCloseOutbound = true
       session.cleanup
 
-      return false
+      return
     end
 
     transfer = Transfer.new source: session, destination: outbound, finishCallback: nil, heartbeatCallback: nil
     __perform transfer: transfer
   end
 
-  private def __perform(transfer : Transfer) : Bool
+  private def __perform(transfer : Transfer) : Nil
     session.syncCloseOutbound = false
     set_transfer_options transfer: transfer
 
@@ -48,7 +48,7 @@ class CONNECT::SessionProcessor
     session.syncCloseOutbound = true
     session.cleanup
 
-    false
+    nil
   end
 
   private def set_transfer_options(transfer : Transfer)
