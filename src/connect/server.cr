@@ -104,10 +104,10 @@ class CONNECT::Server
       response = HTTP::Client::Response.new status_code: 200_i32, body: nil, status_message: "Connection established", version: request.version, body_io: nil
       response.to_io io: session
 
-      uninitialized_buffer = uninitialized UInt8[4096_i32]
+      uninitialized_buffer = uninitialized UInt8[16384_i32]
       read_length = session.read slice: uninitialized_buffer.to_slice
 
-      pre_extract_memory = IO::Memory.new String.new uninitialized_buffer.to_slice[0_i32, read_length]
+      pre_extract_memory = IO::Memory.new uninitialized_buffer.to_slice[0_i32, read_length]
       pre_extract_request = HTTP::Request.from_io io: pre_extract_memory, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
       pre_extract_memory.rewind
 
@@ -115,7 +115,7 @@ class CONNECT::Server
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
 
       traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficFlag::HTTP : TrafficFlag::HTTPS
-      destination_frame.try &.trafficType = traffic_type
+      destination_frame.trafficType = traffic_type if destination_frame
     else
       memory = IO::Memory.new
       request.to_io io: memory
@@ -123,7 +123,7 @@ class CONNECT::Server
 
       read_only_extract = Layer::Extract.new memory: memory, wrapped: session.inbound
       session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
-      destination_frame.try &.trafficType = TrafficFlag::HTTP
+      destination_frame.trafficType = TrafficFlag::HTTP if destination_frame
     end
 
     destination_frame.try { |_destination_frame| session.destination_frame = _destination_frame }
