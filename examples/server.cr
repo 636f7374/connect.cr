@@ -35,20 +35,22 @@ server.on_auth = ->(user_name : String?, password : String?) do
 end
 
 loop do
-  session = server.accept? rescue nil
-  next unless _session = session
+  _socket = server.underly_accept? rescue nil
+  next unless socket = _socket
 
   spawn do
+    _session = server.accept socket: socket
+    next unless session = _session
+
     begin
-      server.establish! session: _session, start_immediately: true, sync_create_outbound_socket: (_session.outbound ? false : true)
+      server.establish! session: session, start_immediately: true, sync_create_outbound_socket: (session.destination ? false : true)
     rescue ex
-      session.syncCloseOutbound = true
-      _session.cleanup rescue nil
+      session.source.close rescue nil
+      session.destination.try &.close rescue nil
 
       next
     end
 
-    processor = CONNECT::SessionProcessor.new session: session
-    processor.perform server: server
+    CONNECT::SessionProcessor.perform server: server, session: session
   end
 end

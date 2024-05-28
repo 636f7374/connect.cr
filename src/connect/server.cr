@@ -51,7 +51,7 @@ class CONNECT::Server
   def establish!(session : Session, start_immediately : Bool = true, sync_create_outbound_socket : Bool = true) : HTTP::Request
     # Check whether HTTP::Request can be obtained, and check it's Headers `Proxy-Authorization`.
 
-    request = HTTP::Request.from_io io: session.inbound, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
+    request = HTTP::Request.from_io io: session.source, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
     raise Exception.new String.build { |io| io << "Server.establish!: HTTP::Request.from_io type is not HTTP::Request (" << request.class << ")." } unless request.is_a? HTTP::Request
 
     return request unless start_immediately
@@ -70,12 +70,6 @@ class CONNECT::Server
     session.check_authorization! server: self, request: request, response: nil
     check_client_validity! session: session, request: request
 
-    # Put HTTP::Request and local_address, remote_address into Session.
-
-    session_inbound = session.inbound
-    session.local_address = session_inbound.responds_to?(:local_address) ? (session_inbound.local_address rescue nil) : nil
-    session.remote_address = session_inbound.responds_to?(:remote_address) ? (session_inbound.remote_address rescue nil) : nil
-
     # Put tunnelMode into Frames::Destination.
 
     session.destination_frame.try do |destination_frame|
@@ -93,26 +87,22 @@ class CONNECT::Server
     # If syncCreateOutboundSocket is true, then create Outbound socket.
 
     if sync_create_outbound_socket
-      session.outbound = create_outbound_socket! session: session, request: request, destination_frame: destination_frame
+      session.destination = create_outbound_socket! session: session, request: request, destination_frame: destination_frame
     end
 
     # If HTTP::Request.method is `CONNECT`, then check whether the established HTTP::Request is HTTPS.
     # ** Because MITM servers need accurate results. **
-    # If it is not `CONNECT`, then merge the first HTTP::Request and Session.inbound into IO::Stapled.
+    # If it is not `CONNECT`, then merge the first HTTP::Request and Session.source into IO::Stapled.
 
     if "CONNECT" == request.method
       response = HTTP::Client::Response.new status_code: 200_i32, body: nil, status_message: "Connection established", version: request.version, body_io: nil
-      response.to_io io: session
+      response.to_io io: session.source
 
-      uninitialized_buffer = uninitialized UInt8[16384_i32]
-      read_length = session.read slice: uninitialized_buffer.to_slice
-
-      pre_extract_memory = IO::Memory.new uninitialized_buffer.to_slice[0_i32, read_length]
-      pre_extract_request = HTTP::Request.from_io io: pre_extract_memory, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize
-      pre_extract_memory.rewind
-
-      read_only_extract = Layer::Extract.new memory: pre_extract_memory, wrapped: session.inbound
-      session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
+      buffer_reader = Layer::BufferReader.new wrapped: session.source
+      pre_extract_request = HTTP::Request.from_io io: buffer_reader, max_request_line_size: options.server.maxRequestLineSize, max_headers_size: options.server.maxHeadersSize rescue nil
+      buffer_reader.memory.rewind
+      read_only_extract = Layer::Extract.new memory: buffer_reader.memory, wrapped: session.source
+      session.source = stapled = IO::Stapled.new reader: read_only_extract, writer: session.source, sync_close: true
 
       traffic_type = pre_extract_request.is_a?(HTTP::Request) ? TrafficFlag::HTTP : TrafficFlag::HTTPS
       destination_frame.trafficType = traffic_type if destination_frame
@@ -121,8 +111,8 @@ class CONNECT::Server
       request.to_io io: memory
       memory.rewind
 
-      read_only_extract = Layer::Extract.new memory: memory, wrapped: session.inbound
-      session.inbound = stapled = IO::Stapled.new reader: read_only_extract, writer: session.inbound, sync_close: true
+      read_only_extract = Layer::Extract.new memory: memory, wrapped: session.source
+      session.source = stapled = IO::Stapled.new reader: read_only_extract, writer: session.source, sync_close: true
       destination_frame.trafficType = TrafficFlag::HTTP if destination_frame
     end
 
@@ -137,7 +127,7 @@ class CONNECT::Server
       destination_address = destination_frame.get_destination_address
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
+      response.to_io io: session.source rescue nil
 
       raise ex
     end
@@ -161,7 +151,7 @@ class CONNECT::Server
       end
     rescue ex
       response = HTTP::Client::Response.new status_code: 504_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
+      response.to_io io: session.source rescue nil
 
       raise ex
     end
@@ -174,7 +164,7 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers Host is empty!" } if headers_host.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
+      response.to_io io: session.source rescue nil
 
       raise ex
     end
@@ -191,7 +181,7 @@ class CONNECT::Server
       raise Exception.new String.build { |io| io << "Server.check_client_validity!: Client HTTP::Headers[Host] port is non-Integer type!" } unless _port = port.to_i?
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
+      response.to_io io: session.source rescue nil
 
       raise ex
     end
@@ -225,7 +215,7 @@ class CONNECT::Server
       end
     rescue ex
       response = HTTP::Client::Response.new status_code: 406_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: session rescue nil
+      response.to_io io: session.source rescue nil
 
       raise ex
     end
@@ -235,7 +225,7 @@ class CONNECT::Server
     true
   end
 
-  def accept? : Session?
+  def underly_accept? : IO?
     return unless socket = io.accept?
     socket.sync = true if socket.responds_to? :sync=
 
@@ -244,15 +234,19 @@ class CONNECT::Server
       socket.write_timeout = _timeout.write if socket.responds_to? :write_timeout=
     end
 
+    socket
+  end
+
+  def accept(socket : IO) : Session
     if socket.is_a? OpenSSL::SSL::Socket::Server
       begin
         socket.accept
       rescue ex
-        return
+        raise ex
       end
     end
 
-    Session.new inbound: socket, options: options
+    Session.new source: socket, options: options
   end
 end
 

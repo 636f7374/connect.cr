@@ -1,48 +1,10 @@
-class CONNECT::Session < IO
-  property inbound : IO
+class CONNECT::Session
+  property source : IO
   getter options : Options
-  property outbound : IO?
-  property syncCloseOutbound : Bool
+  property destination : IO?
 
-  def initialize(@inbound : IO, @options : Options)
-    @outbound = nil
-    @syncCloseOutbound = true
-  end
-
-  def read_timeout=(value : Int | Time::Span | Nil)
-    _io = inbound
-    _io.read_timeout = value if value if _io.responds_to? :read_timeout=
-  end
-
-  def read_timeout
-    _io = inbound
-    _io.read_timeout if _io.responds_to? :read_timeout
-  end
-
-  def write_timeout=(value : Int | Time::Span | Nil)
-    _io = inbound
-    _io.write_timeout = value if value if _io.responds_to? :write_timeout=
-  end
-
-  def write_timeout
-    _io = inbound
-    _io.write_timeout if _io.responds_to? :write_timeout
-  end
-
-  def local_address=(value : Socket::Address?)
-    @localAddress = value
-  end
-
-  def local_address : Socket::Address?
-    @localAddress
-  end
-
-  def remote_address=(value : Socket::Address?)
-    @remoteAddress = value
-  end
-
-  def remote_address : Socket::Address?
-    @remoteAddress
+  def initialize(@source : IO, @options : Options)
+    @destination = nil
   end
 
   def authorize_frame=(value : Frames::Authorize)
@@ -61,68 +23,6 @@ class CONNECT::Session < IO
     @destinationFrame
   end
 
-  def read(slice : Bytes) : Int32
-    return 0_i32 if slice.empty?
-    inbound.read slice
-  end
-
-  def write(slice : Bytes) : Nil
-    return if slice.empty?
-    inbound.write slice
-  end
-
-  def close
-    inbound.close rescue nil
-
-    if syncCloseOutbound
-      outbound.try &.close rescue nil
-    end
-
-    true
-  end
-
-  def cleanup : Bool
-    close
-    reset_socket
-
-    true
-  end
-
-  def cleanup(sd_flag : Transfer::SDFlag, reset : Bool = true)
-    case sd_flag
-    in .source?
-      @inbound.try &.close rescue nil
-    in .destination?
-      @outbound.try &.close rescue nil
-    end
-
-    reset_socket sd_flag: sd_flag if reset
-  end
-
-  def reset_socket
-    closed_memory = IO::Memory.new 0_i32
-    closed_memory.close
-
-    @inbound = closed_memory
-    @outbound = closed_memory
-  end
-
-  def reset_socket(sd_flag : Transfer::SDFlag)
-    closed_memory = IO::Memory.new 0_i32
-    closed_memory.close
-
-    case sd_flag
-    in .source?
-      @inbound = closed_memory
-    in .destination?
-      @outbound = closed_memory
-    end
-  end
-
-  def closed?
-    inbound.closed?
-  end
-
   def check_authorization!(server : Server, request : HTTP::Request, response : HTTP::Server::Response?)
     case server_authorization = server.authorization
     in .no_authorization?
@@ -136,7 +36,7 @@ class CONNECT::Session < IO
       raise Exception.new String.build { |io| io << "Session.check_basic_authorization!: Server expects authorizationFlag to be " << authorization << ", But the client HTTP::Headers is empty!" } unless request_headers = request.headers
     rescue ex
       response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: inbound rescue nil
+      response.to_io io: @source rescue nil
 
       raise ex
     end
@@ -155,7 +55,7 @@ class CONNECT::Session < IO
     end
 
     response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
-    response.to_io io: inbound rescue nil
+    response.to_io io: @source rescue nil
 
     raise Exception.new String.build { |io| io << "Session.check_basic_authorization!: Server expects authorizationFlag to be " << authorization << ", But the client HTTP::Headers[Authorization] or HTTP::Headers[Sec-WebSocket-Protocol] does not exists!" }
   end
@@ -172,7 +72,7 @@ class CONNECT::Session < IO
       raise Exception.new String.build { |io| io << "Session.check_" << {{authorization_type}} << "_authorization!: Server expects authorizationFlag to be " << authorization << ", But the client HTTP::Headers[" << authorization_headers_key << "] is empty!" } if value.empty?
     rescue ex
       response = HTTP::Client::Response.new status_code: 407_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: inbound rescue nil
+      response.to_io io: @source rescue nil
 
       raise ex
     end
@@ -205,7 +105,7 @@ class CONNECT::Session < IO
       raise Exception.new String.build { |io| io << "Session.check_" << {{authorization_type}} << "_authorization!: Server expects authorizationFlag to be " << authorization << ", But the client HTTP::Headers[" << authorization_headers_key << "] onAuth callback returns Denied!" } if permission_type.denied?
     rescue ex
       response = HTTP::Client::Response.new status_code: 401_i32, body: nil, version: request.version, body_io: nil
-      response.to_io io: inbound rescue nil
+      response.to_io io: @source rescue nil
 
       raise ex
     end

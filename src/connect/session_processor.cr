@@ -1,37 +1,35 @@
-class CONNECT::SessionProcessor
-  property session : Session
-  getter finishCallback : Proc(Transfer, UInt64, UInt64, Nil)?
-  getter heartbeatCallback : Proc(Transfer, Time::Span, Bool)?
+module CONNECT::SessionProcessor
+  private def self.set_transfer_options(transfer : Transfer, session : Session, exceed_threshold_flag : Transfer::ExceedThresholdFlag)
+    # This function is used as an overridable.
+    # E.g. sessionid.
 
-  def initialize(@session : Session, @finishCallback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, @heartbeatCallback : Proc(Transfer, Time::Span, Bool)? = nil)
+    __set_transfer_options transfer: transfer, session: session, exceed_threshold_flag: exceed_threshold_flag
   end
 
-  def perform(server : Server) : Nil
-    unless outbound = session.outbound
-      session.syncCloseOutbound = true
-      session.cleanup
+  private def self.__set_transfer_options(transfer : Transfer, session : Session, exceed_threshold_flag : Transfer::ExceedThresholdFlag)
+    transfer.heartbeatInterval = session.options.session.heartbeatInterval
+    transfer.aliveInterval = session.options.session.aliveInterval
+  end
+
+  def self.perform(server : Server, session : Session, finish_callback : Proc(Transfer, UInt64, UInt64, Nil)? = nil, heartbeat_callback : Proc(Transfer, Time::Span, Bool)? = nil) : Nil
+    unless session_destination = session.destination
+      session.source.close rescue nil
 
       return
     end
 
-    transfer = Transfer.new source: session, destination: outbound, finishCallback: nil, heartbeatCallback: nil
-    __perform transfer: transfer
-  end
-
-  private def __perform(transfer : Transfer) : Nil
-    session.syncCloseOutbound = false
-    set_transfer_options transfer: transfer
-
+    transfer = Transfer.new source: session.source, destination: session_destination, finishCallback: finish_callback, heartbeatCallback: (heartbeat_callback ? heartbeat_proc(heartbeat_callback: heartbeat_callback) : heartbeat_proc(heartbeat_callback: nil))
+    set_transfer_options transfer: transfer, session: session, exceed_threshold_flag: Transfer::ExceedThresholdFlag::SENT
     transfer.perform
 
     loop do
       case transfer
       when .sent_done?
-        transfer.destination.close rescue nil unless transfer.destination.closed?
+        transfer.destination.close rescue nil unless transfer.receive_done?
 
         break
       when .receive_done?
-        transfer.source.close rescue nil unless transfer.source.closed?
+        transfer.source.close rescue nil unless transfer.sent_done?
 
         break
       end
@@ -45,33 +43,17 @@ class CONNECT::SessionProcessor
       break
     end
 
-    session.syncCloseOutbound = true
-    session.cleanup
+    transfer.source.close rescue nil
+    transfer.destination.try &.close rescue nil
 
     nil
   end
 
-  private def set_transfer_options(transfer : Transfer)
-    # This function is used as an overridable.
-    # E.g. SessionID.
-
-    __set_transfer_options transfer: transfer
-  end
-
-  private def __set_transfer_options(transfer : Transfer)
-    transfer.heartbeatInterval = session.options.session.heartbeatInterval
-    transfer.aliveInterval = session.options.session.aliveInterval
-    transfer.finishCallback = finishCallback
-    transfer.heartbeatCallback = heartbeatCallback ? heartbeatCallback : heartbeat_proc
-  end
-
-  private def heartbeat_proc : Proc(Transfer, Time::Span, Bool)?
+  private def self.heartbeat_proc(heartbeat_callback : Proc(Transfer, Time::Span, Bool)? = nil) : Proc(Transfer, Time::Span, Bool)?
     ->(transfer : Transfer, heartbeat_interval : Time::Span) do
-      _heartbeat_callback = heartbeatCallback
-      heartbeat = _heartbeat_callback ? _heartbeat_callback.call(transfer, heartbeat_interval) : true
+      heartbeat = heartbeat_callback ? heartbeat_callback.call(transfer, heartbeat_interval) : true
 
-      unless _heartbeat_callback
-        transfer.reset_monitor_state
+      unless heartbeat
         sleep heartbeat_interval
 
         return true

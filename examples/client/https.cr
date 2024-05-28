@@ -18,14 +18,13 @@ client = CONNECT::Client.new host: "0.0.0.0", port: 1234_i32, dns_resolver: dns_
 
 # Then you can add Authorization Methods, such as `Basic`.
 
-client.authorization_method = CONNECT::Frames::AuthorizationFlag::Basic
 authorize_frame = CONNECT::Frames::Authorize.new authorizationType: CONNECT::Frames::AuthorizationFlag::Basic, userName: "admin", password: "abc123"
 client.authorize_frame = authorize_frame
 
 begin
   # Establish a Tunnel to example.com through outbound.
 
-  client.establish! host: "www.example.com", port: 443_i32, remote_dns_resolution: false
+  client.establish! dns_resolver: dns_resolver, host: "www.example.com", port: 443_i32, remote_dns_resolution: false
 
   tls_context = OpenSSL::SSL::Context::Client.new
   tls_context.verify_mode = OpenSSL::SSL::VerifyMode::PEER
